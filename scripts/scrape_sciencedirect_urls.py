@@ -14,10 +14,11 @@ import pandas as pd
 import bs4
 from bs4 import BeautifulSoup
 import time
+from sklearn.utils import shuffle
 
 def scrape_page(driver):
     """
-    This method finds all hrefs on webpage
+    This method finds all the publication result web elements on the webpage.
 
     Parameters
     ----------
@@ -31,7 +32,7 @@ def scrape_page(driver):
 
     """
 
-    elems = driver.find_elements_by_xpath("//a[@href]")
+    elems = driver.find_elements_by_class_name('ResultItem')
     return elems
 
 
@@ -56,79 +57,42 @@ def clean(elems):
 
     urls = []
     for elem in elems:
-        url = elem.get_attribute("href")
-        if 'article' in url and 'pdf' not in url\
-                            and 'search' not in url\
-                            and 'show=' not in url:
-            urls.append(url)
+        href_child = elem.find_element_by_css_selector('a[href]')
+        url = href_child.get_attribute('href')
+        urls.append(url)
     return urls
 
-def build_annual_urls(first_url,year):
+def build_url_list(gui_prefix,search_terms,journal_list):
     """
-    This method takes the first SD url and creates a list of
-    urls which lead to the following pages on SD which will be
-    scraped. The page list is for a given year.
-
-    Parameters
-    ----------
-    first_url (str) : The URL from ScienceDirect after searching for desired
-        keywords
-
-    year (str or int) : The given year the URL list is being built for
-
-
-    Returns
-    -------
-    page_urls (list) : List of urls the webdriver will use to access all
-        available pages for a given year on a given topic
-
+    This method takes the list of journals and creates a tiple nested dictionary
+    containing all accessible urls to each page, in each year, for each journal,
+    for a given search on sciencedirect.
     """
 
-    page_urls = []
-    for i in range(20):
-        url_100 = first_url.replace('&show=25','&show=100')
-        urli = url_100 + '&offset=' + str(i) + '00' + '&articleTypes=REV%2CFLA' + '&years=' + str(year)
-        page_urls.append(urli)
+    dict1 = {}
+    years = np.arange(1995,2020)
+    for journal in journal_list:
 
-    return page_urls
+        dict2 = {}
+        for year in years:
 
-def scrape_all(first_url,driver,year):
-    """
-    This method takes the first ScienceDirect url and navigates
-    through all 60 pages of listed publications, scraping each url
-    on each page. Returns a list of the urls. Scrapes all urls for a given year.
+            dict3 = {}
+            for i in range(60):
+                url = gui_prefix + search_terms + '&show=100'+ '&articleTypes=FLA%2CREV' + '&years='+ str(year)
 
-    Parameters
-    ----------
-    first_url (str) : The very first ScienceDirect URL after keyword search
+                if i != 0:
+                    url = url + '&offset=' + str(i) +'00'
+                url = url + '&pub=' + journal
 
-    driver (Selenium webdriver object) : Instance of a selenium webdriver
-        e.g. webdrive.Chrome()
+                dict3[i] = url
 
-    year (str or int) : The current year being scraped
+            dict2[year] = dict3
 
-    Returns
-    -------
-    urls (list) : A list of all collected urls for a given year
+        dict1[journal] = dict2
 
-    """
-    page_list = build_annual_urls(first_url,year)
-    urls = []
-    for page in page_list:
-        driver.get(page)
-        time.sleep(1) #must sleep to allow page to load
-        elems = scrape_page(driver)
-        links = clean(elems)
-        if len(links) < 2:
-            break
-        for link in links:
-            urls.append(link)
+    return dict1
 
-
-    return urls
-
-
-def proxify(scraped_urls,prefix):
+def proxify(scraped_urls,uw_prefix):
     """
     This method takes a list of scraped urls and turns them into urls that
     go through the UW Library proxy so that all of them are full access.
@@ -137,7 +101,7 @@ def proxify(scraped_urls,prefix):
     ----------
     scraped_urls (list) : The list of URLs to be converted
 
-    prefix (str) : The string that all URLs which go through the UW Library
+    uw_prefix (str) : The string that all URLs which go through the UW Library
         Proxy start with.
 
     Returns
@@ -150,13 +114,13 @@ def proxify(scraped_urls,prefix):
     proxy_urls = []
     for url in scraped_urls:
         sd_id = url[-17:]
-        newlink = prefix + sd_id
+        newlink = uw_prefix + sd_id
         if sd_id.startswith('S'):
             proxy_urls.append(newlink)
 
     return proxy_urls
 
-def write_urls(urls,file,year):
+def write_urls(urls,file):
     """
     This method takes a list of urls and writes them to a desired text file.
 
@@ -175,31 +139,87 @@ def write_urls(urls,file,year):
 
     """
     for link in urls:
-        line = str(year) + ',' + link
+        line = link
         file.write(line)
         file.write('\n')
 
+def find_pubTitle(driver,journal):
+    """
+    This method finds the identifying number for a specific journal. This
+    identifying number is added to the gui query URL to ensure only publciations
+    from the desired journal are being found.
+    """
+    pub_elems = driver.find_elements_by_css_selector('input[id*=publicationTitles]')
+    pub_names = []
+
+    for elem in pub_elems:
+        pub_name = elem.get_attribute("name")
+        if pub_name == journal:
+            return elem.get_attribute('id')[-6:] #returns the identifying number
+                                                 #for that journal
 
 
-driver = webdriver.Chrome()
-prefix = 'https://www-sciencedirect-com.offcampus.lib.washington.edu/science/article/pii/'
 
-first_url = input("Copy/Paste the ScienceDirect URL here: ")
-print('\n')
-filename = input("Input filename with .txt extension you wish to store urls in: ")
 
+df = pd.read_excel('elsevier_journals.xls')
+df.Full_Category = df.Full_Category.str.lower() # lowercase topics for searching
+df = df.drop_duplicates(subset = 'Journal_Title') # drop any duplicate journals
+df = shuffle(df)
+
+name = df.Full_Category.str.contains # making this an easier command to type
+
+# The set of default strings that will be used to sort which journals we want
+journal_strings = ['chemistry','energy','molecular','atomic','chemical','biochem'
+                  ,'organic','polymer','chemical engineering','biotech','coloid']
+
+# new dataframe full of only journals who's topic description contained the
+# desired keywords
+df2 = df[name('polymer') | name('chemistry') | name('energy')
+        | name('molecular') | name('colloid') | name('biochem')
+        | name('organic') | name('biotech') | name('chemical')]
+
+journal_list = df2.Journal_Title # Series of only the journals to be searched
+
+
+gui_prefix = 'https://www.sciencedirect.com/search/advanced?qs='
+search_terms = 'chemistry%20OR%20molecule%20OR%20polyer%20OR%20organic'
+url_dict = build_url_list(gui_prefix,search_terms,journal_list)
+
+#driver = webdriver.Chrome()
+uw_prefix = 'https://www-sciencedirect-com.offcampus.lib.washington.edu/science/article/pii/'
+
+#filename = input("Input filename with .txt extension for URL storage: ")
+
+url_counter = []
 master_list = []
-years = np.arange(1990,2021)
-file = open(filename,'w')
+#file = open(filename,'a+')
 
-for year in years:
-    year = str(year)
-    scraped_urls = scrape_all(first_url,driver,year)
-    proxy_urls = proxify(scraped_urls,prefix)
-    for link in proxy_urls:
-        master_list.append(link)
-    print('Number of URLs collected = ',len(master_list))
-    print('Year is: ',year)
-    write_urls(proxy_urls,file,year)
 
+
+for journal in journal_list:
+    for year in np.arange(1995,2020):
+        for offset in np.arange(60):
+
+            page = url_dict[journal][year][offset]
+            driver.get(page)
+            time.sleep(2)
+            if offset == 0:       # if on page 1, we need to grab the publisher number
+                try:                    # we may be at a page which won't have the item we are looking for
+                    pubTitles = find_pubTitle(driver,journal_list[journal_counter]) # grabs the pubTitles Number
+                    for url in url_dict[journal]:
+                        url = url + '&pubTitles=' + pubTitles # update every url in the list
+                    driver.get(url_dict[journal][year][0])                         # reload the first page with the new url
+                except:
+                    pass                                        # if there is an exception, it means we are on the right page
+
+            scraped_elems = scrape_page(driver)                 # scrape the page
+            if len(scraped_elems) < 2:
+                break
+
+            scraped_urls = clean(scraped_elems)
+            proxy_urls = proxify(scraped_urls,uw_prefix) # not even sure this is needed
+
+            write_urls(proxy_urls,file)
+
+file.close()
 driver.quit()
