@@ -217,8 +217,6 @@ for journal in journal_list:
                     pass                                        # if there is an exception, it means we are on the right page
 
             scraped_elems = scrape_page(driver)                 # scrape the page
-            if len(scraped_elems) < 2:
-                break
 
             scraped_urls, titles = clean(scraped_elems)
             proxy_urls = proxify(scraped_urls,uw_prefix) # not even sure this is needed
@@ -226,6 +224,9 @@ for journal in journal_list:
             write_urls(proxy_urls,titles,file,journal,year)
             url_counter += len(proxy_urls)
             print('Total URLs saved is: ',url_counter)
+
+            if len(scraped_elems) < 100:    # after content is saved, go to the next year
+                break                       # because we know this is the last page of urls for this year
 
 file.close()
 driver.quit()
