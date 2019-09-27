@@ -1,10 +1,6 @@
 """
 This code is used to scrape ScienceDirect of publication urls and write them to
 a text file in the current directory for later use.
-
-To use this code, go to ScienceDirect.com and search for the topic of interest.
-Then, copy the URL and paste it into terminal when prompted for user input.
-
 """
 
 import selenium
@@ -55,12 +51,17 @@ def clean(elems):
 
     """
 
+    titles = []
     urls = []
     for elem in elems:
         href_child = elem.find_element_by_css_selector('a[href]')
         url = href_child.get_attribute('href')
+
+        title = href_child.text
+
+        titles.append(title)
         urls.append(url)
-    return urls
+    return urls, titles
 
 def build_url_list(gui_prefix,search_terms,journal_list):
     """
@@ -120,7 +121,7 @@ def proxify(scraped_urls,uw_prefix):
 
     return proxy_urls
 
-def write_urls(urls,file):
+def write_urls(urls,titles,file,journal,year):
     """
     This method takes a list of urls and writes them to a desired text file.
 
@@ -138,8 +139,8 @@ def write_urls(urls,file):
     Does not return anything
 
     """
-    for link in urls:
-        line = link
+    for link,title in zip(urls,titles):
+        line = link + ',' + title + ',' + journal + ',' + str(year)
         file.write(line)
         file.write('\n')
 
@@ -164,14 +165,15 @@ def find_pubTitle(driver,journal):
 df = pd.read_excel('elsevier_journals.xls')
 df.Full_Category = df.Full_Category.str.lower() # lowercase topics for searching
 df = df.drop_duplicates(subset = 'Journal_Title') # drop any duplicate journals
-df = shuffle(df)
+df = shuffle(df,random_state = 42)
 
-name = df.Full_Category.str.contains # making this an easier command to type
+
 
 # The set of default strings that will be used to sort which journals we want
 journal_strings = ['chemistry','energy','molecular','atomic','chemical','biochem'
                   ,'organic','polymer','chemical engineering','biotech','coloid']
 
+name = df.Full_Category.str.contains # making this an easier command to type
 # new dataframe full of only journals who's topic description contained the
 # desired keywords
 df2 = df[name('polymer') | name('chemistry') | name('energy')
@@ -182,17 +184,17 @@ journal_list = df2.Journal_Title # Series of only the journals to be searched
 
 
 gui_prefix = 'https://www.sciencedirect.com/search/advanced?qs='
-search_terms = 'chemistry%20OR%20molecule%20OR%20polyer%20OR%20organic'
+search_terms = 'chemistry%20OR%20molecule%20OR%20polymer%20OR%20organic'
 url_dict = build_url_list(gui_prefix,search_terms,journal_list)
 
-#driver = webdriver.Chrome()
+driver = webdriver.Chrome()
 uw_prefix = 'https://www-sciencedirect-com.offcampus.lib.washington.edu/science/article/pii/'
 
-#filename = input("Input filename with .txt extension for URL storage: ")
+filename = input("Input filename with .txt extension for URL storage: ")
 
-url_counter = []
+url_counter = 0
 master_list = []
-#file = open(filename,'a+')
+file = open(filename,'a+')
 
 
 
@@ -201,11 +203,13 @@ for journal in journal_list:
         for offset in np.arange(60):
 
             page = url_dict[journal][year][offset]
+            print("journal, year, offset =  ",journal,year,offset)
             driver.get(page)
-            time.sleep(2)
-            if offset == 0:       # if on page 1, we need to grab the publisher number
-                try:                    # we may be at a page which won't have the item we are looking for
-                    pubTitles = find_pubTitle(driver,journal_list[journal_counter]) # grabs the pubTitles Number
+
+            time.sleep(2)           # need sleep to load the page properly
+            if offset == 0:         # if on page 1, we need to grab the publisher number
+                try:                # we may be at a page which won't have the item we are looking for
+                    pubTitles = find_pubTitle(driver,journal_list[journal_counter])
                     for url in url_dict[journal]:
                         url = url + '&pubTitles=' + pubTitles # update every url in the list
                     driver.get(url_dict[journal][year][0])                         # reload the first page with the new url
@@ -216,10 +220,12 @@ for journal in journal_list:
             if len(scraped_elems) < 2:
                 break
 
-            scraped_urls = clean(scraped_elems)
+            scraped_urls, titles = clean(scraped_elems)
             proxy_urls = proxify(scraped_urls,uw_prefix) # not even sure this is needed
 
-            write_urls(proxy_urls,file)
+            write_urls(proxy_urls,titles,file,journal,year)
+            url_counter += len(proxy_urls)
+            print('Total URLs saved is: ',url_counter)
 
 file.close()
 driver.quit()
