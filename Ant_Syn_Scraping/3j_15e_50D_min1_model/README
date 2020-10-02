@@ -1,5 +1,0 @@
-This model was trained on the abstractions from Carbon, Journal of Inorganic Biochemistry, and Journal of Organometallic Chemistry
-
-15 epochs
-minimum word occurance of 1 (so all words included)
-50 dimensional embeddings
