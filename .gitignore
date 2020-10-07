@@ -1,3 +1,10 @@
+#local files
+w2v_models/*
+w2v_models
+.DS_Store
+*/.DS_Store
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
