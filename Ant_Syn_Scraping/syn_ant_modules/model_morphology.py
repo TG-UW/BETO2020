@@ -25,8 +25,12 @@ class Phase_I_NN(nn.Module):
     def __init__(self, in_dims, common):
         super(Phase_I_NN, self).__init__()
         
-        #embedding layer
-        self.embedded = functions.glove_embedding_pre_trained_weights(common) 
+        if common != None:
+            #embedding layer
+            self.embedded = functions.glove_embedding_pre_trained_weights(common)
+            
+        else:
+            self.embedded = nn.Linear(1, in_dims)
         
         #hidden layers
         self.hidden_layers = nn.Sequential(

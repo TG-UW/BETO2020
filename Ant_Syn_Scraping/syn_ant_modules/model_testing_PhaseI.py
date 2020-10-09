@@ -86,9 +86,9 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
         ant_epoch_acc = sum(ant_test_acc_list)/test_total
 
 
-        print(f"Total Epoch Testing Loss is: {test_epoch_loss}")
-        print(f"Total Epoch Antonym Testing Accuracy is: {ant_epoch_acc}")
-        print(f"Total Epoch Synonym Testing Accuracy is: {syn_epoch_acc}")       
+#         print(f"Total Epoch Testing Loss is: {test_epoch_loss}")
+#         print(f"Total Epoch Antonym Testing Accuracy is: {ant_epoch_acc}")
+#         print(f"Total Epoch Synonym Testing Accuracy is: {syn_epoch_acc}")       
         
     
     return test_epoch_loss, syn_test_epoch_loss, ant_test_epoch_loss, Lm_test_epoch_loss, syn_epoch_acc, ant_epoch_acc, syn_true, syn_predictions, ant_true, ant_predictions
