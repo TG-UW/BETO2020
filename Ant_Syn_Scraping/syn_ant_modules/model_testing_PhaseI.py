@@ -27,6 +27,7 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
         
         syn_test_acc_list = []
         ant_test_acc_list = []
+        irrel_test_acc_list = []
         
         test_total = 0
         ant_el_count = 0
@@ -50,7 +51,7 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
             #calculate loss per batch of testing data
             syn_test_loss = syn_criterion(S1_out, S2_out, synonymy_score)
             ant_test_loss = ant_criterion(S2_out, A1_out, antonymy_score)
-            Lm_test_loss = Lm_criterion(S1_out, synonymy_score, antonymy_score)
+            Lm_test_loss = Lm_criterion(synonymy_score, antonymy_score, labels)
             
             test_loss = syn_test_loss + ant_test_loss + Lm_test_loss
             
@@ -62,12 +63,13 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
             test_total += 1 
         
             #accuracy function
-            acc = functions.accuracy()
+            acc = functions.phase_1_accuracy()
             accuracies = acc(synonymy_score, antonymy_score, labels)
             
             #TODO: add accuracy list for irrelevant pairs (accuracies[2])
             syn_test_acc_list.append(accuracies[0])
             ant_test_acc_list.append(accuracies[1])
+            irrel_test_acc_list.append(accuracies[2])
             
             #get predictions and labels for confusion matrix
             preds, truths = acc.confusion(synonymy_score, antonymy_score, labels)
@@ -84,6 +86,7 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
 
         syn_epoch_acc = sum(syn_test_acc_list)/test_total
         ant_epoch_acc = sum(ant_test_acc_list)/test_total
+        irrel_epoch_acc = sum(irrel_test_acc_list)/test_total
 
 
 #         print(f"Total Epoch Testing Loss is: {test_epoch_loss}")
@@ -91,5 +94,5 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
 #         print(f"Total Epoch Synonym Testing Accuracy is: {syn_epoch_acc}")       
         
     
-    return test_epoch_loss, syn_test_epoch_loss, ant_test_epoch_loss, Lm_test_epoch_loss, syn_epoch_acc, ant_epoch_acc, syn_true, syn_predictions, ant_true, ant_predictions
+    return test_epoch_loss, syn_test_epoch_loss, ant_test_epoch_loss, Lm_test_epoch_loss, syn_epoch_acc, ant_epoch_acc, irrel_epoch_acc, syn_true, syn_predictions, ant_true, ant_predictions
 

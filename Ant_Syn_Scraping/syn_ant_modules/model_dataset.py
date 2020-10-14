@@ -17,8 +17,8 @@ class Phase_I_Train_Dataset(Dataset):
         self.len = data.shape[0]
         
         #creating a list of tuples where [w1,w2] and [ss, as]
-        data_x = list(zip(data['word 1 index'], data['word 2 index']))
-        data_y = list(zip(data['syn score'], data['ant score']))
+        data_x = list(zip(data['word 1'], data['word 2']))
+        data_y = list(data['label'])
         
         #split into x_data our features and y_data our targets
         #F.soft_max expects 'float' predictions and 'long' labels
@@ -47,8 +47,8 @@ class Phase_I_Test_Dataset(Dataset):
         self.len = data.shape[0]
         
         #creating a list of tuples where [w1,w2] and [ss, as]
-        data_x = list(zip(data['word 1 index'], data['word 2 index']))
-        data_y = list(zip(data['syn score'], data['ant score']))
+        data_x = list(zip(data['word 1'], data['word 2']))
+        data_y = list(data['label'])
             
         #split into x_data our features and y_data our targets
         #F.soft_max expects 'float' predictions and 'long' labels
@@ -77,10 +77,12 @@ class DistillerDataset(Dataset):
     
     def __init__(self, word_pairs, labels, indices, path):
         
+        super(DistillerDataset).__init__()
+        
         if os.path.exists(path) == False: #first time using dataset or train-test-split
             
             self.word_pairs = word_pairs
-            self.labels = labels
+            self.labels = labels.rename('labels')
             self.indices = indices
             self.index_pairs = pd.DataFrame(columns = ['word 1', 'word 2'])
 
@@ -90,44 +92,63 @@ class DistillerDataset(Dataset):
 
                 word1 = self.word_pairs['word 1'].iloc[i]
                 word2 = self.word_pairs['word 2'].iloc[i]
-
+                                
                 index1 = self.get_index(word1)
                 index2 = self.get_index(word2)
 
-                self.index_pairs.loc[i] = pd.Series({'word 1':index1, 'word 2':index2}) 
+                self.index_pairs.loc[i] = pd.Series({'word 1':index1, 'word 2':index2})
 
                 pbar.update()
                 
             self.index_pairs.to_json(path)
             self.word_pairs.to_json(path[:-5]+'_words.json')
             self.labels.to_json(path[:-5]+'_labels.json')
-                
+                            
         else: #okay to use previously created train-test-split
             
             self.index_pairs = pd.read_json(path)
             self.word_pairs = pd.read_json(path[:-5]+'_words.json')
-            self.labels = pd.read_json(path[:-5]+'_labels.json')
+            
+            with open(path[:-5]+'_labels.json', 'r') as f:
+                j_labs = json.load(f)
+                
+            self.labels = pd.DataFrame({'labels':j_labs})
+            
+        self.x_data = torch.tensor(self.index_pairs[['word 1', 'word 2']].values.astype(float))
+        self.x_data = self.x_data.type(torch.long)
+
+        self.y_data = torch.tensor(self.labels.values.astype(float))
+        self.y_data = self.y_data.type(torch.long)
+        
         
     def __len__(self):
         
-        self.len = self.data.shape[0]
+        self.len = self.index_pairs.shape[0]
         
         return self.len
     
     
     def __getitem__(self, key):
         
-        index1 = self.index_pairs['word 1'].iloc[key]
-        index2 = self.index_pairs['word 2'].iloc[key]
         
-        index_pair = (index1, index2)
-        
-        return index_pair, self.labels[key]
+        return self.x_data[key], self.y_data[key]
     
     
     def get_index(self, word):
         
-        index = self.indices.loc[self.indices['word'] == word]
+        index_word_pair = self.indices.query('word == @word')
+        
+        indx_list = index_word_pair['index'].values
+        
+        #because pd.DataFrame.values returns a list, need the single
+        #element that is within it
+        if len(indx_list) == 0:
+            print(f'index-word mishap {word}')
+            bad_row = self.indices.query('word == @word')
+            print(bad_row)
+            
+        else:
+            index = indx_list[0]
         
         return index
         

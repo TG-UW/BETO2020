@@ -22,44 +22,47 @@ class Phase_I_NN(nn.Module):
     This mimics the Distiller method described by Asif Ali et al.
     """
 
-    def __init__(self, in_dims, common):
+    def __init__(self, in_dims, vocab_length, common, w2v_model):
         super(Phase_I_NN, self).__init__()
         
         if common != None:
             #embedding layer
-            self.embedded = functions.glove_embedding_pre_trained_weights(common)
+            self.embedded = functions.w2v_embedding_pre_trained_weights(common, w2v_model)
             
         else:
-            self.embedded = nn.Linear(1, in_dims)
+            #take in word index and generate random embedding
+            self.embedded = nn.Embedding(num_embeddings = vocab_length,
+                                         embedding_dim = in_dims)
         
         #hidden layers
         self.hidden_layers = nn.Sequential(
-        nn.Linear(in_dims, 300), #expand
-        nn.Linear(300, 500),
+        nn.Linear(in_dims, 800), #expand
+        nn.Linear(800, 1000),
 #         nn.Softplus()
         )
         
         #synonym subspace branch
         self.S_branch = nn.Sequential(
-        nn.Dropout(0.1), #to limit overfitting
-        nn.Linear(500,100), #compress
-        nn.Linear(100,50),
+#         nn.Dropout(0.1), #to limit overfitting
+        nn.Linear(1000,500), #compress
+        nn.Linear(500,200),
 #         nn.Softplus()
         )
         
         #antonym subspace branch
         self.A_branch = nn.Sequential(
-        nn.Dropout(0.1), #to limit overfitting
-        nn.Linear(500, 100), #compress
-        nn.Linear(100,50),
+#         nn.Dropout(0.1), #to limit overfitting
+        nn.Linear(1000,500), #compress
+        nn.Linear(500,200),
 #         nn.Softplus()
         )
         
     def forward(self, index_tuples):
-                
-        #for every word pair in the training batch, get pre-trained embeddings (50D)
-        #from the index. em_1 is tensor of first words, em_2 is tensor of second words
-        em_1, em_2 = self.embedded(index_tuples[:,0]), self.embedded(index_tuples[:,1])
+                        
+        #for every word pair in the training batch, get (pre-trained embeddings) from
+        #the index. em_1 is tensor of first words, em_2 is tensor of second words
+        em_1 = self.embedded(index_tuples[:,0])
+        em_2 = self.embedded(index_tuples[:,1])
         
         #pass through hidden layers
         out_w1 = self.hidden_layers(em_1) 
@@ -84,30 +87,29 @@ class Phase_I_NN(nn.Module):
 
 class Phase_II_NN(nn.Module):
     """
-    This NN takes in the sub-space encodings distilled by Phase_I_NN and uses
+    This NN takes in the synonymy and antonymy scores distilled by Phase_I_NN and uses
     them to predict synonymy and antonymy classification for each word pair.
+    
+    0 = irrelevant pair
+    1 = synonymous pair
+    2 = antonymous pair
     """
     def __init__(self, s1_out, s2_out, a1_out, a2_out):
         super(Phase_II_NN).__init__()
         
-        self.syn_classifier = nn.Sequential(
-            nn.Linear(50, 500),
-            nn.Linear(500, 100),
+        self.classifier = nn.Sequential(
+            nn.Linear(2, 100),
             nn.Linear(100, 10),
-            nn.Linear(10, 1),
+            nn.Linear(10, 3),
             nn.Softplus()
         )
         
-        self.ant_classifier = nn.Sequential(
-            nn.Linear(50, 500),
-            nn.Linear(500, 100),
-            nn.Linear(100, 10),
-            nn.Linear(10, 1),
-            nn.Softplus()
-        )
         
-    def forward(self, s1_out, s2_out, a1_out, a2_out):
-        syn_score = self.syn_classifier(s1_out, s2_out)
-        ant_score = self.ant_classifier(a1_out, a2_out)
+    def forward(self, syn_score, ant_score):
+        
+        tensor = torch.cat(syn_score, ant_score, dim = 1)
+        classification = self.classifier(tensor)
+        
+        return classification
         
         
