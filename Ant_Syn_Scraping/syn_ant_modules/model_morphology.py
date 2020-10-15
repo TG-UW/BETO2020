@@ -1,8 +1,11 @@
 import os
 import sys
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
 
 module_path = os.path.abspath(os.path.join('./'))
 if module_path not in sys.path:
@@ -45,7 +48,7 @@ class Phase_I_NN(nn.Module):
         self.S_branch = nn.Sequential(
 #         nn.Dropout(0.1), #to limit overfitting
         nn.Linear(1000,500), #compress
-        nn.Linear(500,200),
+        nn.Linear(500,60),
 #         nn.Softplus()
         )
         
@@ -53,7 +56,7 @@ class Phase_I_NN(nn.Module):
         self.A_branch = nn.Sequential(
 #         nn.Dropout(0.1), #to limit overfitting
         nn.Linear(1000,500), #compress
-        nn.Linear(500,200),
+        nn.Linear(500,60),
 #         nn.Softplus()
         )
         
@@ -81,35 +84,143 @@ class Phase_I_NN(nn.Module):
                                    F.cosine_similarity(A2_out, S1_out, dim = 1))
         antonymy_score = antonymy_score.view(-1, 1)
                                       
-        return S1_out, S2_out, A1_out, A2_out, synonymy_score, antonymy_score
+        return em_1, em_2, S1_out, S2_out, A1_out, A2_out, synonymy_score, antonymy_score
 
 
 
-class Phase_II_NN(nn.Module):
+class Phase2XGBoost():
     """
-    This NN takes in the synonymy and antonymy scores distilled by Phase_I_NN and uses
-    them to predict synonymy and antonymy classification for each word pair.
+    This XGBoost multiclass classifier takes in the synonymy and antonymy
+    scores distilled by Phase_I_NN, as well as the pre-trained word embeddings
+    and uses them to predict synonymy/antonymy classification for each word pair.
     
     0 = irrelevant pair
     1 = synonymous pair
     2 = antonymous pair
     """
-    def __init__(self, s1_out, s2_out, a1_out, a2_out):
-        super(Phase_II_NN).__init__()
+    def __init__(self, io_path):
+        """
+        Sets XGBoost parameters. For training loops, io_path is used to save/overwrite
+        the current model state with the result of training on the most recent loop's
+        outputs. During testing loops, io_path is used to load the most recently saved
+        XGBoost model state to make predictions using the test set
+        """
+        super(Phase2XGBoost).__init__()
         
-        self.classifier = nn.Sequential(
-            nn.Linear(2, 100),
-            nn.Linear(100, 10),
-            nn.Linear(10, 3),
-            nn.Softplus()
-        )
+        self.io_path = io_path
         
+        #XGBoost parameters
+        self.params = {
+            'booster' : 'gbtree',
+            'verbosity' : 0,
+            'eta' : 0.3,
+            'gamma' : 0,
+            'max_depth' : 6,
+            'objective' : 'multi:softmax',
+            'num_class' : 3,
+        }
         
-    def forward(self, syn_score, ant_score):
+        self.num_round = 5
         
-        tensor = torch.cat(syn_score, ant_score, dim = 1)
-        classification = self.classifier(tensor)
+    def train_save(self, dists, syn_scores, ant_scores, labels):
+        """
+        During training loops, this function takes in the outputs of Phase I and saves
+        the model state for use in the testing loop
+        """
         
-        return classification
+        #convert lists to np.arrays
+        np_dists = np.asarray(dists)
+        np_syn_scs = np.asarray(syn_scores)
+        np_ant_scs = np.asarray(ant_scores)
+        self.labels = np.asarray(labels)
+        
+        #consolidate training features and split for validation set
+        self.features = np.stack((np_dists, np_syn_scs, np_ant_scs), axis = 1)
+        self.xtr, self.xts, self.ytr, self.yts = train_test_split(self.features, self.labels,
+                                                                  test_size = 0.2, shuffle = True)
+        
+        #convert datasets to xgb.DMatrix (train, val, total)
+        self.dtrain = xgb.DMatrix(self.xtr, label = self.ytr)
+        self.dval = xgb.DMatrix(self.xts, label = self.yts)
+        self.dtotal = xgb.DMatrix(self.features, label = self.labels)
+        
+        watchlist = [(self.dval, 'eval'), (self.dtrain, 'train')]
+        
+        bst = xgb.train(self.params, self.dtrain, self.num_round, watchlist)
+        
+        preds = bst.predict(self.dtotal)
+        
+        bst.save_model(self.io_path)
+        
+        return preds
+    
+    def test_pred(self, dists, syn_scores, ant_scores, labels):
+        """
+        During testing loops, this function loads the most recently trained XGBoost
+        model and then uses the outputs of Phase I to make predictions
+        """
+        
+        #load saved model
+        bst = xgb.Booster(model_file = self.io_path)
+        
+        #convert torch.tensors to np.arrays
+        np_dists = np.asarray(dists)
+        np_syn_scs = np.asarray(syn_scores)
+        np_ant_scs = np.asarray(ant_scores)
+        self.labels = np.asarray(labels)
+        
+        #consolidate features for prediction
+        self.features = np.stack((np_dists, np_syn_scs, np_ant_scs), axis = 1)
+        
+        #convert datasets to xgb.DMatrix
+        self.dtest = xgb.DMatrix(self.features, label = self.labels)
+                
+        preds = bst.predict(self.dtest)
+        
+        return preds
+    
+    
+    def accuracy(self, preds, labels):
+        """
+        This simple function takes in a list of labels and an np.array
+        of the predictions produced by either self.train_save() or 
+        self.test_pred() and returns a list of accuracy values where the
+        elements are: [irrelevant_acc, syn_acc, ant_acc]
+        """
+        
+        np_labels = np.asarray(labels)
+        
+        cor_syn = 0
+        wrng_syn = 0
+        cor_ant = 0
+        wrng_ant = 0
+        cor_irrel = 0
+        wrng_irrel = 0
+
+        for pred, label in zip(preds, np_labels):
+
+            if label == 0: #irrels
+                if pred == 0:
+                    cor_irrel += 1
+                else:
+                    wrng_irrel += 1
+
+            if label == 1: #syns
+                if pred == 1:
+                    cor_syn += 1
+                else:
+                    wrng_syn += 1
+
+            if label == 2: #ants
+                if pred == 2:
+                    cor_ant += 1
+                else:
+                    wrng_ant += 1
+        
+        irrel_acc = (cor_irrel/(wrng_irrel+cor_irrel))*100
+        syn_acc = (cor_syn/(wrng_syn+cor_syn))*100
+        ant_acc = (cor_ant/(wrng_ant+cor_ant))*100
+        
+        return [irrel_acc, syn_acc, ant_acc]
         
         

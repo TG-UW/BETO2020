@@ -115,14 +115,14 @@ class Loss_Labels(nn.Module):
         return loss
     
     
-class phase_1_accuracy(nn.Module):
+class Phase1Accuracy(nn.Module):
     """
     This class takes in a batch of synonymy scores, antonymy scores, predictons, and labels
     to identify the accuracy for the batch in Phase 1 (Distiller)
     """
     
     def __init__(self):
-        super(phase_1_accuracy, self).__init__()
+        super(Phase1Accuracy, self).__init__()
         
     def forward(self, synonymy_scores, antonymy_scores, labels):
         
@@ -224,6 +224,7 @@ class phase_1_accuracy(nn.Module):
                 truths[i, 1] = 0
             
         return preds, truths
+
 
 
 #feeding the model pretrained weights

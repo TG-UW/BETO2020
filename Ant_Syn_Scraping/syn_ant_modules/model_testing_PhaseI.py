@@ -9,11 +9,17 @@ module_path = os.path.abspath(os.path.join('./'))
 if module_path not in sys.path:
     sys.path.append(module_path)
 import model_functions_PhaseI as functions
+import model_morphology as momo
 
 
 def Phase_I_eval_model(model, testing_data_set, optimizer):
 
     model.eval()
+    
+    dists = []
+    syn_scs = []
+    ant_scs = []
+    labs = []
     
     syn_criterion = functions.Loss_Synonymy()
     ant_criterion = functions.Loss_Antonymy()
@@ -46,7 +52,15 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
             inputs = torch.from_numpy(np.asarray(inputs)).long()
             labels = torch.from_numpy(np.asarray(labels)).long()
                     
-            S1_out, S2_out, A1_out, A2_out, synonymy_score, antonymy_score = model(inputs)
+            em1, em2, S1_out, S2_out, A1_out, A2_out, synonymy_score, antonymy_score = model(inputs)
+            
+            #gather cosine distances, scores, and labels for phase II
+            cos_tens = F.cosine_similarity(em1, em2, dim = 1)
+
+            dists.extend(cos_tens.tolist())
+            syn_scs.extend(synonymy_score.squeeze().tolist())
+            ant_scs.extend(antonymy_score.squeeze().tolist())
+            labs.extend(labels.tolist())
                 
             #calculate loss per batch of testing data
             syn_test_loss = syn_criterion(S1_out, S2_out, synonymy_score)
@@ -63,7 +77,7 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
             test_total += 1 
         
             #accuracy function
-            acc = functions.phase_1_accuracy()
+            acc = functions.Phase1Accuracy()
             accuracies = acc(synonymy_score, antonymy_score, labels)
             
             #TODO: add accuracy list for irrelevant pairs (accuracies[2])
@@ -87,6 +101,14 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
         syn_epoch_acc = sum(syn_test_acc_list)/test_total
         ant_epoch_acc = sum(ant_test_acc_list)/test_total
         irrel_epoch_acc = sum(irrel_test_acc_list)/test_total
+        
+        #test Phase II
+        p2_path = '/Users/wesleytatum/Desktop/post_doc/data/phase2_xgb_model.model'
+
+        p2 = momo.Phase2XGBoost(p2_path)
+        preds = p2.test_pred(dists, syn_scs, ant_scs, labs)
+
+        p2_accs = p2.accuracy(preds, labs)
 
 
 #         print(f"Total Epoch Testing Loss is: {test_epoch_loss}")
@@ -94,5 +116,5 @@ def Phase_I_eval_model(model, testing_data_set, optimizer):
 #         print(f"Total Epoch Synonym Testing Accuracy is: {syn_epoch_acc}")       
         
     
-    return test_epoch_loss, syn_test_epoch_loss, ant_test_epoch_loss, Lm_test_epoch_loss, syn_epoch_acc, ant_epoch_acc, irrel_epoch_acc, syn_true, syn_predictions, ant_true, ant_predictions
+    return test_epoch_loss, syn_test_epoch_loss, ant_test_epoch_loss, Lm_test_epoch_loss, syn_epoch_acc, ant_epoch_acc, irrel_epoch_acc, syn_true, syn_predictions, ant_true, ant_predictions, p2_accs
 
