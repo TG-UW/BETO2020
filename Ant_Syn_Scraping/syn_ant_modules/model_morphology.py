@@ -113,7 +113,7 @@ class Phase2XGBoost():
         self.params = {
             'booster' : 'gbtree',
             'verbosity' : 0,
-            'eta' : 0.3,
+            'eta' : 0.5,
             'gamma' : 0,
             'max_depth' : 6,
             'objective' : 'multi:softmax',
